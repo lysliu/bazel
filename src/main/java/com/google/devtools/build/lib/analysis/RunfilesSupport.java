@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.analysis.config.RunUnder;
 import com.google.devtools.build.lib.collect.nestedset.NestedSet;
 import com.google.devtools.build.lib.collect.nestedset.NestedSetBuilder;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.Immutable;
+import com.google.devtools.build.lib.packages.Package;
 import com.google.devtools.build.lib.packages.TargetUtils;
 import com.google.devtools.build.lib.packages.Type;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
@@ -76,11 +77,13 @@ public final class RunfilesSupport {
   private static final String RUNFILES_DIR_EXT = ".runfiles";
   private static final String INPUT_MANIFEST_EXT = ".runfiles_manifest";
   private static final String OUTPUT_MANIFEST_BASENAME = "MANIFEST";
+  private static final String REPO_MAPPING_MANIFEST_BASENAME = "_repo_mapping";
 
   private final Runfiles runfiles;
 
   private final Artifact runfilesInputManifest;
   private final Artifact runfilesManifest;
+  private final Artifact repoMappingManifest;
   private final Artifact runfilesMiddleman;
   private final Artifact owningExecutable;
   private final boolean buildRunfileLinks;
@@ -132,8 +135,11 @@ public final class RunfilesSupport {
       runfilesInputManifest = null;
       runfilesManifest = null;
     }
+    Artifact repoMappingManifest =
+        createRepoMappingManifestAction(ruleContext, runfiles, owningExecutable);
     Artifact runfilesMiddleman =
-        createRunfilesMiddleman(ruleContext, owningExecutable, runfiles, runfilesManifest);
+        createRunfilesMiddleman(
+            ruleContext, owningExecutable, runfiles, runfilesManifest, repoMappingManifest);
 
     boolean runfilesEnabled = ruleContext.getConfiguration().runfilesEnabled();
 
@@ -141,6 +147,7 @@ public final class RunfilesSupport {
         runfiles,
         runfilesInputManifest,
         runfilesManifest,
+        repoMappingManifest,
         runfilesMiddleman,
         owningExecutable,
         buildRunfileLinks,
@@ -153,6 +160,7 @@ public final class RunfilesSupport {
       Runfiles runfiles,
       Artifact runfilesInputManifest,
       Artifact runfilesManifest,
+      Artifact repoMappingManifest,
       Artifact runfilesMiddleman,
       Artifact owningExecutable,
       boolean buildRunfileLinks,
@@ -162,6 +170,7 @@ public final class RunfilesSupport {
     this.runfiles = runfiles;
     this.runfilesInputManifest = runfilesInputManifest;
     this.runfilesManifest = runfilesManifest;
+    this.repoMappingManifest = repoMappingManifest;
     this.runfilesMiddleman = runfilesMiddleman;
     this.owningExecutable = owningExecutable;
     this.buildRunfileLinks = buildRunfileLinks;
@@ -268,6 +277,16 @@ public final class RunfilesSupport {
     return runfilesManifest;
   }
 
+  /**
+   * Returns the foo.runfiles/_repo_mapping file if Bazel is run with transitive package tracking
+   * turned on (see {@code SkyframeExecutor#getForcedSingleSourceRootIfNoExecrootSymlinkCreation}).
+   * Otherwise, returns null.
+   */
+  @Nullable
+  public Artifact getRepoMappingManifest() {
+    return repoMappingManifest;
+  }
+
   /** Returns the root directory of the runfiles symlink farm; otherwise, returns null. */
   @Nullable
   public Path getRunfilesDirectory() {
@@ -327,11 +346,15 @@ public final class RunfilesSupport {
       ActionConstructionContext context,
       Artifact owningExecutable,
       Runfiles runfiles,
-      @Nullable Artifact runfilesManifest) {
+      @Nullable Artifact runfilesManifest,
+      Artifact repoMappingManifest) {
     NestedSetBuilder<Artifact> deps = NestedSetBuilder.stableOrder();
     deps.addTransitive(runfiles.getAllArtifacts());
     if (runfilesManifest != null) {
       deps.add(runfilesManifest);
+    }
+    if (repoMappingManifest != null) {
+      deps.add(repoMappingManifest);
     }
     return context
         .getAnalysisEnvironment()
@@ -494,5 +517,39 @@ public final class RunfilesSupport {
   /** Returns the path of the output manifest of {@code runfilesDir}. */
   public static Path outputManifestPath(Path runfilesDir) {
     return runfilesDir.getRelative(OUTPUT_MANIFEST_BASENAME);
+  }
+
+  @Nullable
+  private static Artifact createRepoMappingManifestAction(
+      RuleContext ruleContext, Runfiles runfiles, Artifact owningExecutable) {
+    NestedSet<Package> transitivePackages =
+        ruleContext.getTransitivePackagesForRunfileRepoMappingManifest();
+    if (transitivePackages == null) {
+      // For environments where transitive packages are not tracked, we don't have external repos,
+      // so don't build the repo mapping manifest in such cases.
+      return null;
+    }
+
+    PathFragment executablePath =
+        (owningExecutable != null)
+            ? owningExecutable.getOutputDirRelativePath(
+                ruleContext.getConfiguration().isSiblingRepositoryLayout())
+            : ruleContext.getPackageDirectory().getRelative(ruleContext.getLabel().getName());
+    Artifact repoMappingManifest =
+        ruleContext.getDerivedArtifact(
+            executablePath
+                .replaceName(executablePath.getBaseName() + RUNFILES_DIR_EXT)
+                .getRelative(REPO_MAPPING_MANIFEST_BASENAME),
+            ruleContext.getBinDirectory());
+    ruleContext
+        .getAnalysisEnvironment()
+        .registerAction(
+            new RepoMappingManifestAction(
+                ruleContext.getActionOwner(),
+                repoMappingManifest,
+                transitivePackages,
+                runfiles.getAllArtifacts(),
+                ruleContext.getWorkspaceName()));
+    return repoMappingManifest;
   }
 }

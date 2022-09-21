@@ -237,6 +237,18 @@ public class RepositoryOptions extends OptionsBase {
               + "previous run's cache.")
   public boolean checkExternalRepositoryFiles;
 
+  @Option(
+      name = "bazel_compatibility_check",
+      defaultValue = "on",
+      converter = BazelCompatibilityMode.Converter.class,
+      documentationCategory = OptionDocumentationCategory.BAZEL_CLIENT_OPTIONS,
+      effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS},
+      help =
+          "Checks bazel version compatibility. Valid values are `on` to escalate it to a resolution "
+              + "failure, `off` to disable the check, or `warning` to print a warning when mismatch "
+              + "detected.")
+  public BazelCompatibilityMode bazelCompatibilityMode;
+
   /** An enum for specifying different modes for checking direct dependency accuracy. */
   public enum CheckDirectDepsMode {
     OFF, // Don't check direct dependency accuracy.
@@ -247,6 +259,19 @@ public class RepositoryOptions extends OptionsBase {
     public static class Converter extends EnumConverter<CheckDirectDepsMode> {
       public Converter() {
         super(CheckDirectDepsMode.class, "direct deps check mode");
+      }
+    }
+  }
+  /** An enum for specifying different modes for bazel compatibility check. */
+  public enum BazelCompatibilityMode {
+    ON, // Check and throw an error when mismatched.
+    WARNING, // Print warning when mismatched.
+    OFF; // Don't check bazel version compatibility.
+
+    /** Converts to {@link BazelCompatibilityMode}. */
+    public static class Converter extends EnumConverter<BazelCompatibilityMode> {
+      public Converter() {
+        super(BazelCompatibilityMode.class, "Bazel compatibility check mode");
       }
     }
   }

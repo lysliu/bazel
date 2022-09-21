@@ -55,8 +55,6 @@ public class LabelBuildSettingTest extends BuildViewTestCase {
         PrecomputedValue.injected(
             BazelModuleResolutionFunction.CHECK_DIRECT_DEPENDENCIES, CheckDirectDepsMode.WARNING),
         PrecomputedValue.injected(
-            BazelModuleResolutionFunction.BAZEL_COMPATIBILITY_MODE, BazelCompatibilityMode.WARNING),
-        PrecomputedValue.injected(
             BazelModuleResolutionFunction.BAZEL_COMPATIBILITY_MODE, BazelCompatibilityMode.WARNING));
   }
 

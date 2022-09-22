@@ -367,13 +367,14 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0', '<5.1.4'])");
 
-    embedBazelVersion("5.1.6");
+    embedBazelVersion("5.1.4");
     BazelModuleResolutionFunction.BAZEL_COMPATIBILITY_MODE.set(
         differencer, BazelCompatibilityMode.OFF);
     EvaluationResult<BazelModuleResolutionValue> result =
         evaluator.evaluate(ImmutableList.of(BazelModuleResolutionValue.KEY), evaluationContext);
 
     assertThat(result.hasError()).isFalse();
+    assertDoesNotContainEvent("Bazel version 5.1.4 is not compatible");
   }
 
   @Test

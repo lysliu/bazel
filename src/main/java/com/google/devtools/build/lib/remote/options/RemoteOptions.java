@@ -413,6 +413,18 @@ public final class RemoteOptions extends CommonRemoteOptions {
   public boolean incompatibleRemoteSymlinks;
 
   @Option(
+      name = "incompatible_remote_dangling_symlinks",
+      defaultValue = "true",
+      category = "remote",
+      documentationCategory = OptionDocumentationCategory.EXECUTION_STRATEGY,
+      effectTags = {OptionEffectTag.EXECUTION},
+      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
+      help =
+          "If set to true and --incompatible_remote_symlinks is also true, symlinks in action"
+              + " outputs are allowed to dangle.")
+  public boolean incompatibleRemoteDanglingSymlinks;
+
+  @Option(
       name = "experimental_remote_cache_compression",
       defaultValue = "false",
       documentationCategory = OptionDocumentationCategory.REMOTE,
@@ -607,6 +619,17 @@ public final class RemoteOptions extends CommonRemoteOptions {
               + "to print only on failures, `success` to print only on successes and "
               + "`all` to print always.")
   public ExecutionMessagePrintMode remotePrintExecutionMessages;
+
+  @Option(
+      name = "incompatible_remote_downloader_send_all_headers",
+      defaultValue = "true",
+      documentationCategory = OptionDocumentationCategory.REMOTE,
+      effectTags = {OptionEffectTag.UNKNOWN},
+      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
+      help =
+          "Whether to send all values of a multi-valued header to the remote downloader instead of"
+              + " just the first.")
+  public boolean remoteDownloaderSendAllHeaders;
 
   // The below options are not configurable by users, only tests.
   // This is part of the effort to reduce the overall number of flags.

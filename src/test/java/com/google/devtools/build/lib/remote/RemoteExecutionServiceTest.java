@@ -34,6 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import build.bazel.remote.execution.v2.ActionResult;
+import build.bazel.remote.execution.v2.CacheCapabilities;
 import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.Directory;
 import build.bazel.remote.execution.v2.DirectoryNode;
@@ -43,6 +44,7 @@ import build.bazel.remote.execution.v2.OutputFile;
 import build.bazel.remote.execution.v2.OutputSymlink;
 import build.bazel.remote.execution.v2.Platform;
 import build.bazel.remote.execution.v2.RequestMetadata;
+import build.bazel.remote.execution.v2.SymlinkAbsolutePathStrategy;
 import build.bazel.remote.execution.v2.SymlinkNode;
 import build.bazel.remote.execution.v2.Tree;
 import com.google.common.base.Throwables;
@@ -524,7 +526,7 @@ public class RemoteExecutionServiceTest {
   }
 
   @Test
-  public void downloadOutputs_absoluteFileSymlink_error() throws Exception {
+  public void downloadOutputs_absoluteFileSymlink_success() throws Exception {
     ActionResult.Builder builder = ActionResult.newBuilder();
     builder.addOutputFileSymlinksBuilder().setPath("outputs/foo").setTarget("/abs/link");
     RemoteActionResult result =
@@ -534,16 +536,16 @@ public class RemoteExecutionServiceTest {
     RemoteExecutionService service = newRemoteExecutionService();
     RemoteAction action = service.buildRemoteAction(spawn, context);
 
-    IOException expected =
-        assertThrows(IOException.class, () -> service.downloadOutputs(action, result));
+    service.downloadOutputs(action, result);
 
-    assertThat(expected).hasMessageThat().contains("/abs/link");
-    assertThat(expected).hasMessageThat().contains("absolute path");
+    Path path = execRoot.getRelative("outputs/foo");
+    assertThat(path.isSymbolicLink()).isTrue();
+    assertThat(path.readSymbolicLink()).isEqualTo(PathFragment.create("/abs/link"));
     assertThat(context.isLockOutputFilesCalled()).isTrue();
   }
 
   @Test
-  public void downloadOutputs_absoluteDirectorySymlink_error() throws Exception {
+  public void downloadOutputs_absoluteDirectorySymlink_success() throws Exception {
     ActionResult.Builder builder = ActionResult.newBuilder();
     builder.addOutputDirectorySymlinksBuilder().setPath("outputs/foo").setTarget("/abs/link");
     RemoteActionResult result =
@@ -553,11 +555,10 @@ public class RemoteExecutionServiceTest {
     RemoteExecutionService service = newRemoteExecutionService();
     RemoteAction action = service.buildRemoteAction(spawn, context);
 
-    IOException expected =
-        assertThrows(IOException.class, () -> service.downloadOutputs(action, result));
+    service.downloadOutputs(action, result);
 
-    assertThat(expected).hasMessageThat().contains("/abs/link");
-    assertThat(expected).hasMessageThat().contains("absolute path");
+    Path path = execRoot.getRelative("outputs/foo");
+    assertThat(path.readSymbolicLink()).isEqualTo(PathFragment.create("/abs/link"));
     assertThat(context.isLockOutputFilesCalled()).isTrue();
   }
 
@@ -584,8 +585,7 @@ public class RemoteExecutionServiceTest {
 
     assertThat(expected.getSuppressed()).isEmpty();
     assertThat(expected).hasMessageThat().contains("outputs/dir/link");
-    assertThat(expected).hasMessageThat().contains("/foo");
-    assertThat(expected).hasMessageThat().contains("absolute path");
+    assertThat(expected).hasMessageThat().contains("absolute symlink");
     assertThat(context.isLockOutputFilesCalled()).isTrue();
   }
 
@@ -1365,6 +1365,53 @@ public class RemoteExecutionServiceTest {
     ImmutableList<Digest> toQuery = ImmutableList.of(wobbleDigest, quxDigest, barDigest);
     assertThat(getFromFuture(cache.findMissingDigests(remoteActionExecutionContext, toQuery)))
         .isEmpty();
+  }
+
+  private void doUploadDanglingSymlink(PathFragment targetPath) throws Exception {
+    // arrange
+    Path linkPath = execRoot.getRelative("outputs/link");
+    linkPath.createSymbolicLink(targetPath);
+    Artifact outputSymlink =
+        ActionsTestUtil.createUnresolvedSymlinkArtifactWithExecPath(
+            artifactRoot, linkPath.relativeTo(execRoot));
+    RemoteExecutionService service = newRemoteExecutionService();
+    Spawn spawn = newSpawn(ImmutableMap.of(), ImmutableSet.of(outputSymlink));
+    FakeSpawnExecutionContext context = newSpawnExecutionContext(spawn);
+    RemoteAction action = service.buildRemoteAction(spawn, context);
+    SpawnResult spawnResult =
+        new SpawnResult.Builder()
+            .setExitCode(0)
+            .setStatus(SpawnResult.Status.SUCCESS)
+            .setRunnerName("test")
+            .build();
+
+    // act
+    UploadManifest manifest = service.buildUploadManifest(action, spawnResult);
+    service.uploadOutputs(action, spawnResult);
+
+    // assert
+    ActionResult.Builder expectedResult = ActionResult.newBuilder();
+    expectedResult
+        .addOutputFileSymlinksBuilder()
+        .setPath("outputs/link")
+        .setTarget(targetPath.toString());
+    assertThat(manifest.getActionResult()).isEqualTo(expectedResult.build());
+  }
+
+  @Test
+  public void uploadOutputs_uploadRelativeDanglingSymlink() throws Exception {
+    doUploadDanglingSymlink(PathFragment.create("some/path"));
+  }
+
+  @Test
+  public void uploadOutputs_uploadAbsoluteDanglingSymlink() throws Exception {
+    when(cache.getCacheCapabilities())
+        .thenReturn(
+            CacheCapabilities.newBuilder()
+                .setSymlinkAbsolutePathStrategy(SymlinkAbsolutePathStrategy.Value.ALLOWED)
+                .build());
+
+    doUploadDanglingSymlink(PathFragment.create("/some/path"));
   }
 
   @Test

@@ -17,6 +17,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+import json
 
 from src.test.py.bazel import test_base
 from src.test.py.bazel.bzlmod.test_utils import BazelRegistry
@@ -425,6 +426,45 @@ class BazelModuleTest(test_base.TestBase):
         'data_ext = module_extension(_data_ext_impl)',
     ])
     self.RunBazel(['build', '@no_op//:no_op'], allow_failure=False)
+
+  def setUpProjectWithLocalRegistryModule(self, dep_name, dep_version, module_base_path):
+    bazel_registry = {
+        'module_base_path' : module_base_path,
+    }
+    with self.main_registry.root.joinpath('bazel_registry.json').open('w') as f:
+      json.dump(bazel_registry, f, indent=4, sort_keys=True)
+
+    self.main_registry.generateCcSource(dep_name, dep_version)
+    self.main_registry.createLocalPathModule(dep_name, dep_version, dep_name + "/" + dep_version)
+
+    self.ScratchFile('main.cc', [
+        '#include "%s.h"' % dep_name,
+        'int main() {',
+        '    hello_%s("main function");' % dep_name,
+        '}',
+    ])
+    self.ScratchFile('MODULE.bazel', [
+        'bazel_dep(name = "%s", version = "%s")' % (dep_name, dep_version),
+    ])
+    self.ScratchFile('BUILD', [
+        'cc_binary(',
+        '  name = "main",',
+        '  srcs = ["main.cc"],',
+        '  deps = ["@%s//:lib_%s"],' % (dep_name, dep_name),
+        ')',
+    ])
+    self.ScratchFile("WORKSPACE", [])
+
+  def testLocalRepoInSourceJsonAbsoluteBasePath(self):
+    self.setUpProjectWithLocalRegistryModule("sss", "1.3", str(self.main_registry.projects))
+    _, stdout, _ = self.RunBazel(['run', '//:main'], allow_failure=False)
+    self.assertIn('main function => sss@1.3', stdout)
+
+
+  def testLocalRepoInSourceJsonRelativeBasePath(self):
+    self.setUpProjectWithLocalRegistryModule("sss", "1.3", "projects")
+    _, stdout, _ = self.RunBazel(['run', '//:main'], allow_failure=False)
+    self.assertIn('main function => sss@1.3', stdout)
 
 if __name__ == '__main__':
   unittest.main()
